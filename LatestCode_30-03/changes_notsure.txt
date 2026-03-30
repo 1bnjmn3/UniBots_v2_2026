@@ -1,0 +1,15 @@
+FROM (image frame capturing)
+if shared["dockingInProcess"]:
+                time.sleep(0.02)
+                continue
+REMOVED shared["pickingInProcess"]
+
+If April tags are not detected at continuous rotation, make it rotate by degrees and then pause briefly everytime
+
+
+I used apf_move from K file. If Tag approach is weird use apf_move from M for it instead of K, separately
+
+
+
+Increase locking distance for ball capturing maybe
+

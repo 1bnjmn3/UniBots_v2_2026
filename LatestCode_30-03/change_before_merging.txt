@@ -1,0 +1,3 @@
+INITIALLY storageFull = False;
+timer = 160 (not 1000)
+After just storageFull delivery -> no stop_event !

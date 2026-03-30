@@ -1,0 +1,31 @@
+*Make a service that is started automatically on Pi*
+
+ssh nagim@raspberrypi.local
+scp Motors main nagim@192.168.137.187:~/UniBotsMain/MKv2_AutoRun
+
+In terminal:
+
+    sudo nano /etc/systemd/system/MKv2_AutoRun.service
+
+
+TO ENABLE AND START THE SERVICE:
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable MKv2_AutoRun.service
+    sudo systemctl start MKv2_AutoRun.service
+
+
+TO CHECK STATUS:
+
+    sudo systemctl status MKv2_AutoRun.service
+
+READ LOGS:
+
+    journalctl -u MKv2_AutoRun.service -f
+
+TO DELETE AND CLEANUP SERVICE:
+
+    sudo systemctl stop MKv2_AutoRun.service      # stop it running right now
+    sudo systemctl disable MKv2_AutoRun.service   # remove it from boot
+    sudo rm /etc/systemd/system/MKv2_AutoRun.service  # delete the service file itself
+    sudo systemctl daemon-reload           # tell systemd to forget it
