@@ -85,9 +85,6 @@ import logging
 import cv2
 from gpiozero import Button
 import queue
-import board
-import busio
-import adafruit_vl53l0x
 
 # ── Module imports ─────────────────────────────────────────────────────────────
 import ServoController_MK as SC

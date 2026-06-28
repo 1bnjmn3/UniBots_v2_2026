@@ -1,0 +1,118 @@
+I havent done anything for tof yet, how do i make it so tof is always senising and whenevre it falls below 60mm it triggers scooping, stopping robot in the meanwhile. The approach code will stay same, with blind scoop, however if at any point tof triggered then we will pick up balls, only exception is when w are trying to dock he bot and also in case the end of game process started
+
+Also do not worry about tof snsor triggers while claw busy
+
+To implement this exactly as you described, we will create a dedicated ToF Sensor Thread that runs continuously in the background.
+
+This architecture gives you the best of both worlds:
+
+The "Ninja" Preempt: If the ToF sensor detects a ball at any time (even while the robot is halfway through a vision-triggered blind scoop), it will instantly hijack the system, forcefully halt the wheels, and trigger the claw.
+
+Double-Scoop Protection: We will add a smart tofJustTriggered flag so the robot doesn't accidentally trigger the claw a second time when the blind approach finishes its timer.
+
+Here is exactly how to update mainMK.py to implement this.
+
+Step 1: Add the new flag to the Initial State
+Find SHARED_INITIAL_STATE near the top of mainMK.py and add "tofJustTriggered": False to the Ball detection section.
+
+Python
+    # ── Ball detection / navigation ────────────────────────────────────────
+    "lockedBall":         "",       
+    "moveTargetBall":     None,     
+    "pickingInProcess":   False,    
+    "tofJustTriggered":   False,    # <--- ADD THIS LINE 
+Step 2: Add the ToF Sensor Thread
+Paste this entirely new function just above your motors_handler_thread function:
+
+Python
+# ══════════════════════════════════════════════════════════════════════════════
+# THREAD  –  ToF Sensor Handler
+# ══════════════════════════════════════════════════════════════════════════════
+def tof_sensor_thread(shared, worker_pause_event, stop_event):
+    log.info("ToF Sensor Thread started.")
+    try:
+        import board
+        import busio
+        import adafruit_vl53l0x
+        # Physical Pin 33 (SCL) = board.D13, Physical Pin 32 (SDA) = board.D12
+        i2c = busio.I2C(board.D13, board.D12)
+        tof_sensor = adafruit_vl53l0x.VL53L0X(i2c)
+        tof_sensor.measurement_timing_budget = 20000 # Fast polling mode
+        log.info("ToF sensor successfully initialized on GPIO 12/13.")
+    except Exception as e:
+        log.error(f"ToF initialization failed: {e}. Thread stopping.")
+        return
+
+    while not stop_event.is_set():
+        worker_pause_event.wait()
+        try:
+            # Exceptions: Do not trigger if docking, finalising, or if claw is already moving
+            if shared["dockingInProcess"] or shared["finilisingState"] or shared["clawBusy"]:
+                time.sleep(0.05)
+                continue
+
+            if tof_sensor.range < 60:
+                log.info("ToF Triggered (<60mm)! Force stopping robot to scoop.")
+                MC.stop_robot()
+                
+                # Hijack the system to initiate an immediate grab
+                shared["tofJustTriggered"] = True
+                shared["pickingInProcess"] = True
+                shared["engageClaw"]       = True
+                shared["clawBusy"]         = True
+                
+                # Prevent multiple triggers while the grab is happening
+                while shared["clawBusy"] and not stop_event.is_set():
+                    time.sleep(0.05)
+
+        except Exception:
+            pass # Ignore momentary I2C read glitches
+        
+        time.sleep(0.02)
+    log.info("ToF Sensor Thread stopped.")
+Step 3: Upgrade the Motors Handler
+Now, find motors_handler_thread and locate the elif shared["pickingInProcess"]: block. Replace that specific block with this upgraded version that respects the ToF hijack:
+
+Python
+            # ── ATOMIC SEQUENCE: ball pick ─────────────────────────────────────
+            elif shared["pickingInProcess"]:
+                log.info("MotorsHandler: PICK sequence started.")
+                
+                if not shared["tofJustTriggered"]:
+                    # Vision triggered the pick. Start the normal blind approach.
+                    MC.confident_approach_toGrab()   
+                    MC.stop_robot()                  
+                    
+                    # If the ToF hijacked the sequence while we were sleeping in the 
+                    # blind approach, we MUST NOT double-trigger the claw here.
+                    if not shared["tofJustTriggered"]:
+                        shared["engageClaw"] = True
+                        shared["clawBusy"]   = True
+                
+                # Reset the hijack flag
+                shared["tofJustTriggered"] = False 
+                
+                # Block until ServoHandler finishes the grab and clears pickingInProcess
+                while not stop_event.is_set() and shared["pickingInProcess"]:
+                    time.sleep(0.02)
+                    
+                MC.little_reverse()
+                log.info("MotorsHandler: PICK sequence complete – resuming normal operation.")
+Step 4: Start the Thread in Main
+Finally, scroll to the very bottom of the file to your main() function. Inside the threads = [...] list, add the new ToF thread so it starts up with the robot:
+
+Python
+    # ── Define and start threads ──────────────────────────────────────────
+    threads = [
+        # ... (keep existing ImageFrameCapture, etc) ...
+        threading.Thread(
+            target=tof_sensor_thread,
+            args=(shared, worker_pause_event, stop_event),
+            name="ToFSensor",
+            daemon=True,
+        ),
+        # ... (keep existing MotorsHandler, ServoHandler) ...
+How this logic works flawlessly in practice:
+Scenario A (ToF triggers mid-approach): Vision sees a ball, starts the blind approach. Halfway through the drive, the ball hits 60mm. The ToF thread instantly halts the motors and drops the claw. The blind approach finishes its timer, wakes up, sees tofJustTriggered = True, and safely skips triggering the claw a second time.
+
+Scenario B (Sneak attack): The robot is just driving around tracking a ball, but hasn't initiated the pick yet. The ToF sensor detects it's exactly < 60mm away. The ToF thread halts the motors, drops the claw, and safely forces the system into the pickingInProcess sequence.
