@@ -1,0 +1,18 @@
+*this code is in /etc/systemd/system/ *
+
+[Unit]
+Description=Robot Listener Service
+After=network.target
+
+[Service]
+ExecStart=/home/nagim/UniBotsMain/venv/bin/python3 /home/nagim/UniBotsMain/MKv2_AutoRun/mainMK.py
+WorkingDirectory=/home/nagim/UniBotsMain/MKv2_AutoRun
+StandardOutput=journal
+StandardError=journal
+Restart=always
+User=nagim
+SupplementaryGroups=gpio video
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
